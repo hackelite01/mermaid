@@ -3,7 +3,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MoreVertical, Plus, Search, Trash2, Pencil, FileCode } from "lucide-react";
+import {
+  FileCode,
+  Globe,
+  MoreVertical,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -24,12 +32,14 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { formatRelative } from "@/lib/utils";
+import { formatRelative, cn } from "@/lib/utils";
 
 type DiagramSummary = {
   id: string;
   title: string;
   theme: string;
+  tags: string[];
+  isPublic: boolean;
   updatedAt: string;
 };
 
@@ -37,26 +47,32 @@ export function DiagramList() {
   const router = useRouter();
   const { toast } = useToast();
   const [diagrams, setDiagrams] = React.useState<DiagramSummary[] | null>(null);
+  const [allTags, setAllTags] = React.useState<string[]>([]);
   const [query, setQuery] = React.useState("");
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [renameTarget, setRenameTarget] = React.useState<DiagramSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DiagramSummary | null>(null);
 
-  const load = React.useCallback(async (q: string) => {
-    const url = q ? `/api/diagrams?q=${encodeURIComponent(q)}` : "/api/diagrams";
+  const load = React.useCallback(async (q: string, tag: string | null) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (tag) params.set("tag", tag);
+    const url = `/api/diagrams${params.toString() ? `?${params.toString()}` : ""}`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) {
       setDiagrams([]);
       return;
     }
-    const data = (await res.json()) as { diagrams: DiagramSummary[] };
+    const data = (await res.json()) as { diagrams: DiagramSummary[]; tags: string[] };
     setDiagrams(data.diagrams);
+    setAllTags(data.tags ?? []);
   }, []);
 
   React.useEffect(() => {
-    const id = setTimeout(() => load(query), 200);
+    const id = setTimeout(() => load(query, activeTag), 200);
     return () => clearTimeout(id);
-  }, [query, load]);
+  }, [query, activeTag, load]);
 
   async function createDiagram() {
     setCreating(true);
@@ -65,7 +81,7 @@ export function DiagramList() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: "Untitled diagram",
-        code: "graph TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[OK]\n  B -->|No| D[Stop]",
+        code: "flowchart TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[OK]\n  B -->|No| D[Stop]",
         theme: "default",
       }),
     });
@@ -90,7 +106,7 @@ export function DiagramList() {
     }
     toast({ title: "Renamed" });
     setRenameTarget(null);
-    load(query);
+    load(query, activeTag);
   }
 
   async function remove(id: string) {
@@ -101,7 +117,7 @@ export function DiagramList() {
     }
     toast({ title: "Diagram deleted" });
     setDeleteTarget(null);
-    load(query);
+    load(query, activeTag);
   }
 
   return (
@@ -119,7 +135,7 @@ export function DiagramList() {
         </Button>
       </div>
 
-      <div className="relative mb-6 max-w-md">
+      <div className="relative mb-4 max-w-md">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           placeholder="Search by title..."
@@ -128,6 +144,38 @@ export function DiagramList() {
           className="pl-9"
         />
       </div>
+
+      {allTags.length > 0 && (
+        <div className="mb-6 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveTag(null)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs transition-colors",
+              activeTag === null
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background hover:bg-accent",
+            )}
+          >
+            All
+          </button>
+          {allTags.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setActiveTag(t === activeTag ? null : t)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs transition-colors",
+                activeTag === t
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "bg-background hover:bg-accent",
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
 
       {diagrams === null ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -151,10 +199,30 @@ export function DiagramList() {
           {diagrams.map((d) => (
             <Card key={d.id} className="group relative p-5 transition-shadow hover:shadow-md">
               <Link href={`/editor/${d.id}`} className="block">
-                <h3 className="truncate font-semibold">{d.title}</h3>
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="truncate font-semibold">{d.title}</h3>
+                  {d.isPublic && (
+                    <Globe
+                      className="h-3.5 w-3.5 shrink-0 text-primary"
+                      aria-label="Public"
+                    />
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {d.theme} · {formatRelative(d.updatedAt)}
                 </p>
+                {d.tags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {d.tags.slice(0, 4).map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-full border bg-secondary px-2 py-0.5 text-[10px]"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </Link>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

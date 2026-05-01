@@ -11,6 +11,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/components/ui/use-toast";
 
 export default function LoginPage() {
+  return (
+    <React.Suspense
+      fallback={<main className="flex min-h-screen items-center justify-center px-4 py-10" />}
+    >
+      <LoginForm />
+    </React.Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const { toast } = useToast();

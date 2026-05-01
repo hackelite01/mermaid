@@ -22,11 +22,17 @@ export const customStylesSchema = z
   })
   .strict();
 
+export const tagsSchema = z
+  .array(z.string().min(1).max(32).regex(/^[a-z0-9-_ ]+$/i))
+  .max(20);
+
 export const diagramCreateSchema = z.object({
   title: z.string().min(1).max(120).default("Untitled diagram"),
   code: z.string().max(50_000).default(""),
   theme: themeEnum.default("default"),
   customStyles: customStylesSchema.default({}),
+  customCss: z.string().max(10_000).default(""),
+  tags: tagsSchema.default([]),
 });
 
 export const diagramUpdateSchema = z.object({
@@ -34,6 +40,14 @@ export const diagramUpdateSchema = z.object({
   code: z.string().max(50_000).optional(),
   theme: themeEnum.optional(),
   customStyles: customStylesSchema.optional(),
+  customCss: z.string().max(10_000).optional(),
+  tags: tagsSchema.optional(),
+});
+
+export const shareSchema = z.object({ isPublic: z.boolean() });
+
+export const versionCreateSchema = z.object({
+  label: z.string().min(1).max(80).optional(),
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;

@@ -5,14 +5,27 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Check,
+  Copy,
   Download,
+  History,
+  Image as ImageIcon,
+  Keyboard,
   Maximize2,
   Minimize2,
   Save,
-  Image as ImageIcon,
+  Share2,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import { CodeEditor } from "@/components/editor/monaco-editor";
 import {
@@ -21,9 +34,16 @@ import {
   type MermaidPreviewHandle,
 } from "@/components/editor/mermaid-preview";
 import { StylePanel } from "@/components/editor/style-panel";
+import { TemplatesMenu } from "@/components/editor/templates-menu";
+import { ShareDialog } from "@/components/editor/share-dialog";
+import { VersionHistory } from "@/components/editor/version-history";
+import { KeyboardHelp } from "@/components/editor/keyboard-help";
 import { useDiagramStore, type MermaidTheme } from "@/store/diagram-store";
 import type { CustomStyles } from "@/lib/validators";
 import { debounce } from "@/lib/utils";
+import { copyText } from "@/lib/clipboard";
+import { formatMermaid } from "@/lib/format-mermaid";
+import { recordRecent } from "@/lib/recent";
 
 export type DiagramApiPayload = {
   id: string;
@@ -31,6 +51,9 @@ export type DiagramApiPayload = {
   code: string;
   theme: MermaidTheme;
   customStyles: CustomStyles;
+  customCss: string;
+  tags: string[];
+  isPublic: boolean;
 };
 
 export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
@@ -39,12 +62,10 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
   const previewRef = React.useRef<MermaidPreviewHandle>(null);
   const [fullscreen, setFullscreen] = React.useState(false);
   const [debouncedCode, setDebouncedCode] = React.useState(initial.code);
-
-  // Re-fit the preview whenever the layout dimensions change (e.g. fullscreen).
-  React.useEffect(() => {
-    const id = requestAnimationFrame(() => previewRef.current?.fitToView());
-    return () => cancelAnimationFrame(id);
-  }, [fullscreen]);
+  const [shareOpen, setShareOpen] = React.useState(false);
+  const [versionsOpen, setVersionsOpen] = React.useState(false);
+  const [helpOpen, setHelpOpen] = React.useState(false);
+  const [copyState, setCopyState] = React.useState<string | null>(null);
 
   const {
     id,
@@ -52,6 +73,9 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
     code,
     theme,
     customStyles,
+    customCss,
+    tags,
+    isPublic,
     dirty,
     saving,
     lastSavedAt,
@@ -60,15 +84,27 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
     setCode,
     setTheme,
     setCustomStyles,
+    setCustomCss,
+    setTags,
+    setIsPublic,
     setSaving,
     markSaved,
   } = useDiagramStore();
 
   React.useEffect(() => {
     hydrate(initial);
+    recordRecent(initial.id, initial.title);
   }, [initial, hydrate]);
 
-  // Debounce the code for the preview (300ms).
+  React.useEffect(() => {
+    if (id && title) recordRecent(id, title);
+  }, [id, title]);
+
+  React.useEffect(() => {
+    const id = requestAnimationFrame(() => previewRef.current?.fitToView());
+    return () => cancelAnimationFrame(id);
+  }, [fullscreen]);
+
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedCode(code), 300);
     return () => clearTimeout(t);
@@ -81,7 +117,7 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
       const res = await fetch(`/api/diagrams/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, code, theme, customStyles }),
+        body: JSON.stringify({ title, code, theme, customStyles, customCss, tags }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -90,13 +126,12 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
         return;
       }
       markSaved();
-    } catch (e) {
+    } catch {
       setSaving(false);
       toast({ variant: "destructive", title: "Save failed" });
     }
-  }, [id, title, code, theme, customStyles, setSaving, markSaved, toast]);
+  }, [id, title, code, theme, customStyles, customCss, tags, setSaving, markSaved, toast]);
 
-  // Auto-save debounce (1s after last change).
   const autoSaveRef = React.useRef(
     debounce(() => {
       void save();
@@ -110,68 +145,119 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
 
   React.useEffect(() => {
     if (dirty) autoSaveRef.current();
-  }, [dirty, title, code, theme, customStyles]);
+  }, [dirty, title, code, theme, customStyles, customCss, tags]);
 
-  // Cmd/Ctrl+S shortcut.
+  // Global keyboard: Ctrl/Cmd+S, ?, Shift+Alt+F.
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+      const isMod = e.metaKey || e.ctrlKey;
+      const target = e.target as HTMLElement | null;
+      const inField = target && /input|textarea/i.test(target.tagName);
+
+      if (isMod && e.key === "s") {
         e.preventDefault();
         void save();
+      } else if (e.key === "?" && !inField) {
+        e.preventDefault();
+        setHelpOpen(true);
+      } else if (e.shiftKey && e.altKey && (e.key === "F" || e.key === "f")) {
+        e.preventDefault();
+        const formatted = formatMermaid(code);
+        if (formatted !== code) {
+          setCode(formatted);
+          toast({ title: "Code formatted" });
+        }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [save]);
+  }, [save, code, setCode, toast]);
+
+  function applyTemplate(snippet: string) {
+    if (
+      code.trim() &&
+      !window.confirm("Replace current diagram with this template?")
+    ) {
+      return;
+    }
+    setCode(snippet);
+  }
+
+  function format() {
+    const next = formatMermaid(code);
+    if (next === code) {
+      toast({ title: "Already formatted" });
+    } else {
+      setCode(next);
+      toast({ title: "Code formatted" });
+    }
+  }
 
   function downloadSvg() {
     const svg = exportSvg(previewRef.current?.getSvg() ?? null);
-    if (!svg) {
-      toast({ variant: "destructive", title: "Nothing to export" });
-      return;
-    }
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    triggerDownload(blob, `${safeFilename(title)}.svg`);
+    if (!svg) return toast({ variant: "destructive", title: "Nothing to export" });
+    triggerDownload(
+      new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+      `${safeFilename(title)}.svg`,
+    );
+  }
+
+  async function copySvg() {
+    const svg = exportSvg(previewRef.current?.getSvg() ?? null);
+    if (!svg) return toast({ variant: "destructive", title: "Nothing to copy" });
+    const ok = await copyText(svg);
+    flashCopy(ok ? "svg" : null);
+    toast({ title: ok ? "SVG copied" : "Copy failed", variant: ok ? "default" : "destructive" });
+  }
+
+  async function copyMarkdown() {
+    if (!code.trim()) return toast({ variant: "destructive", title: "Nothing to copy" });
+    const md = "```mermaid\n" + code.replace(/```/g, "\\`\\`\\`") + "\n```\n";
+    const ok = await copyText(md);
+    flashCopy(ok ? "md" : null);
+    toast({
+      title: ok ? "Markdown copied" : "Copy failed",
+      variant: ok ? "default" : "destructive",
+    });
+  }
+
+  function flashCopy(kind: string | null) {
+    setCopyState(kind);
+    if (kind) setTimeout(() => setCopyState(null), 1500);
   }
 
   async function downloadPng() {
     const svgEl = previewRef.current?.getSvg();
-    if (!svgEl) {
-      toast({ variant: "destructive", title: "Nothing to export" });
-      return;
-    }
+    if (!svgEl) return toast({ variant: "destructive", title: "Nothing to export" });
     try {
-      const xml = new XMLSerializer().serializeToString(svgEl);
-      const svgBlob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
-      const url = URL.createObjectURL(svgBlob);
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Failed to load SVG"));
-        img.src = url;
-      });
-      const bbox = svgEl.getBoundingClientRect();
-      const scale = 2;
-      const canvas = document.createElement("canvas");
-      canvas.width = bbox.width * scale;
-      canvas.height = bbox.height * scale;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("No 2D context");
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0, bbox.width, bbox.height);
-      URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          toast({ variant: "destructive", title: "PNG export failed" });
-          return;
-        }
-        triggerDownload(blob, `${safeFilename(title)}.png`);
-      }, "image/png");
+      const blob = await renderSvgToPng(svgEl);
+      triggerDownload(blob, `${safeFilename(title)}.png`);
     } catch {
       toast({ variant: "destructive", title: "PNG export failed" });
     }
   }
+
+  async function copyPng() {
+    const svgEl = previewRef.current?.getSvg();
+    if (!svgEl) return toast({ variant: "destructive", title: "Nothing to copy" });
+    try {
+      const blob = await renderSvgToPng(svgEl);
+      const item = new ClipboardItem({ [blob.type]: blob });
+      await navigator.clipboard.write([item]);
+      flashCopy("png");
+      toast({ title: "PNG copied" });
+    } catch {
+      toast({ variant: "destructive", title: "Copy failed" });
+    }
+  }
+
+  const Status = saving
+    ? "Saving..."
+    : dirty
+      ? "Unsaved changes"
+      : lastSavedAt
+        ? "Saved"
+        : "";
 
   return (
     <div
@@ -181,39 +267,90 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
           : "flex h-screen flex-col"
       }
     >
-      <header className="flex items-center gap-3 border-b bg-card px-4 py-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          asChild
-          aria-label="Back to dashboard"
-          onClick={() => router.refresh()}
-        >
+      <header className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
+        <Button variant="ghost" size="icon" asChild aria-label="Back to dashboard">
           <Link href="/dashboard">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
         <Input
-          className="max-w-md border-transparent text-base font-semibold shadow-none focus-visible:border-input"
+          className="w-56 border-transparent text-base font-semibold shadow-none focus-visible:border-input md:w-72"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
-        <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-          {saving
-            ? "Saving..."
-            : dirty
-              ? "Unsaved changes"
-              : lastSavedAt
-                ? "Saved"
-                : ""}
+
+        <TemplatesMenu onPick={applyTemplate} />
+        <Button variant="outline" size="sm" onClick={format} title="Format (Shift+Alt+F)">
+          <Wand2 className="mr-1 h-4 w-4" /> Format
+        </Button>
+
+        <div className="ml-auto flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span className="hidden md:inline">{Status}</span>
+
           <Button variant="outline" size="sm" onClick={save} disabled={saving || !dirty}>
             <Save className="mr-1 h-4 w-4" /> Save
           </Button>
-          <Button variant="outline" size="sm" onClick={downloadSvg}>
-            <Download className="mr-1 h-4 w-4" /> SVG
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Download className="mr-1 h-4 w-4" /> Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onSelect={downloadSvg}>
+                <Download className="mr-2 h-4 w-4" /> Download SVG
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={downloadPng}>
+                <ImageIcon className="mr-2 h-4 w-4" /> Download PNG
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={copySvg}>
+                {copyState === "svg" ? (
+                  <Check className="mr-2 h-4 w-4" />
+                ) : (
+                  <Copy className="mr-2 h-4 w-4" />
+                )}{" "}
+                Copy SVG
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={copyPng}>
+                {copyState === "png" ? (
+                  <Check className="mr-2 h-4 w-4" />
+                ) : (
+                  <Copy className="mr-2 h-4 w-4" />
+                )}{" "}
+                Copy PNG
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={copyMarkdown}>
+                {copyState === "md" ? (
+                  <Check className="mr-2 h-4 w-4" />
+                ) : (
+                  <Copy className="mr-2 h-4 w-4" />
+                )}{" "}
+                Copy Markdown
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+            <Share2 className="mr-1 h-4 w-4" /> Share
           </Button>
-          <Button variant="outline" size="sm" onClick={downloadPng}>
-            <ImageIcon className="mr-1 h-4 w-4" /> PNG
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setVersionsOpen(true)}
+            title="Version history"
+          >
+            <History className="mr-1 h-4 w-4" /> History
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setHelpOpen(true)}
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
@@ -229,8 +366,8 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
       <div
         className={
           fullscreen
-            ? "grid flex-1 overflow-hidden grid-cols-1"
-            : "grid flex-1 overflow-hidden md:grid-cols-[1fr_1fr_280px]"
+            ? "grid flex-1 grid-cols-1 overflow-hidden"
+            : "grid flex-1 overflow-hidden md:grid-cols-[1fr_1fr_300px]"
         }
       >
         {!fullscreen && (
@@ -238,12 +375,13 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
             <CodeEditor value={code} onChange={setCode} />
           </div>
         )}
-        <div className={fullscreen ? "h-full" : "h-full"}>
+        <div className="h-full">
           <MermaidPreview
             ref={previewRef}
             code={debouncedCode}
             theme={theme}
             customStyles={customStyles}
+            customCss={customCss}
           />
         </div>
         {!fullscreen && (
@@ -252,14 +390,75 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
             <StylePanel
               theme={theme}
               customStyles={customStyles}
+              customCss={customCss}
+              tags={tags}
               onThemeChange={setTheme}
               onStylesChange={setCustomStyles}
+              onCustomCssChange={setCustomCss}
+              onTagsChange={setTags}
             />
           </aside>
         )}
       </div>
+
+      {id && (
+        <>
+          <ShareDialog
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            diagramId={id}
+            isPublic={isPublic}
+            onChangePublic={setIsPublic}
+          />
+          <VersionHistory
+            open={versionsOpen}
+            onOpenChange={setVersionsOpen}
+            diagramId={id}
+            currentCode={code}
+            onRestore={(d) => {
+              setTitle(d.title);
+              setCode(d.code);
+              setTheme(d.theme as MermaidTheme);
+              setCustomStyles((d.customStyles as CustomStyles) ?? {});
+              setCustomCss(d.customCss ?? "");
+              router.refresh();
+            }}
+          />
+        </>
+      )}
+
+      <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
+}
+
+async function renderSvgToPng(svgEl: SVGSVGElement): Promise<Blob> {
+  const xml = new XMLSerializer().serializeToString(svgEl);
+  const svgBlob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Failed to load SVG"));
+    img.src = url;
+  });
+  const bbox = svgEl.getBoundingClientRect();
+  const scale = 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = bbox.width * scale;
+  canvas.height = bbox.height * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No 2D context");
+  ctx.scale(scale, scale);
+  ctx.drawImage(img, 0, 0, bbox.width, bbox.height);
+  URL.revokeObjectURL(url);
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) reject(new Error("toBlob returned null"));
+      else resolve(blob);
+    }, "image/png");
+  });
 }
 
 function safeFilename(s: string) {

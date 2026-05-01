@@ -28,6 +28,9 @@ export default async function EditorPage({ params }: { params: { id: string } })
     code: doc.code ?? "",
     theme: (doc.theme ?? "default") as DiagramApiPayload["theme"],
     customStyles: (doc.customStyles ?? {}) as DiagramApiPayload["customStyles"],
+    customCss: doc.customCss ?? "",
+    tags: doc.tags ?? [],
+    isPublic: doc.isPublic ?? false,
   };
 
   return <EditorShell initial={initial} />;

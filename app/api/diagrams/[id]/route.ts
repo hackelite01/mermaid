@@ -4,18 +4,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
 import { Diagram } from "@/models/Diagram";
+import { DiagramVersion } from "@/models/DiagramVersion";
 import { diagramUpdateSchema } from "@/lib/validators";
+import { sanitizeCss } from "@/lib/sanitize-css";
 
 export const runtime = "nodejs";
 
 function isValidId(id: string) {
   return mongoose.Types.ObjectId.isValid(id);
-}
-
-async function ownDiagram(userId: string, id: string) {
-  if (!isValidId(id)) return null;
-  await connectDB();
-  return Diagram.findOne({ _id: id, userId });
 }
 
 export async function GET(
@@ -26,8 +22,12 @@ export async function GET(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!isValidId(params.id)) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
 
-  const doc = await ownDiagram(session.user.id, params.id);
+  await connectDB();
+  const doc = await Diagram.findOne({ _id: params.id, userId: session.user.id });
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({
@@ -36,6 +36,9 @@ export async function GET(
     code: doc.code,
     theme: doc.theme,
     customStyles: doc.customStyles,
+    customCss: doc.customCss ?? "",
+    tags: doc.tags ?? [],
+    isPublic: doc.isPublic ?? false,
     updatedAt: doc.updatedAt,
     createdAt: doc.createdAt,
   });
@@ -49,7 +52,6 @@ export async function PUT(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   if (!isValidId(params.id)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
@@ -70,13 +72,43 @@ export async function PUT(
   }
 
   await connectDB();
+
+  // Snapshot the previous state before applying the update so version history
+  // is the chain of "what was saved before this change".
+  const prev = await Diagram.findOne({ _id: params.id, userId: session.user.id });
+  if (!prev) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const update = { ...parsed.data };
+  if (update.customCss !== undefined) update.customCss = sanitizeCss(update.customCss);
+
   const updated = await Diagram.findOneAndUpdate(
     { _id: params.id, userId: session.user.id },
-    { $set: parsed.data },
+    { $set: update },
     { new: true },
   );
-
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Persist a version snapshot only when the code actually changed —
+  // otherwise small style/title edits would flood history.
+  if (update.code !== undefined && update.code !== prev.code) {
+    await DiagramVersion.create({
+      diagramId: prev._id,
+      userId: session.user.id,
+      title: prev.title,
+      code: prev.code,
+      theme: prev.theme,
+      customStyles: prev.customStyles,
+      customCss: prev.customCss,
+    });
+    // Cap to the most recent 50 versions per diagram.
+    const stale = await DiagramVersion.find({ diagramId: prev._id })
+      .sort({ createdAt: -1 })
+      .skip(50)
+      .select("_id");
+    if (stale.length) {
+      await DiagramVersion.deleteMany({ _id: { $in: stale.map((s) => s._id) } });
+    }
+  }
 
   return NextResponse.json({
     id: updated._id.toString(),
@@ -84,6 +116,9 @@ export async function PUT(
     code: updated.code,
     theme: updated.theme,
     customStyles: updated.customStyles,
+    customCss: updated.customCss ?? "",
+    tags: updated.tags ?? [],
+    isPublic: updated.isPublic ?? false,
     updatedAt: updated.updatedAt,
     createdAt: updated.createdAt,
   });
@@ -97,20 +132,15 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   if (!isValidId(params.id)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
   await connectDB();
-  const result = await Diagram.deleteOne({
-    _id: params.id,
-    userId: session.user.id,
-  });
-
+  const result = await Diagram.deleteOne({ _id: params.id, userId: session.user.id });
   if (result.deletedCount === 0) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-
+  await DiagramVersion.deleteMany({ diagramId: params.id });
   return NextResponse.json({ ok: true });
 }

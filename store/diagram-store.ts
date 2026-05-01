@@ -9,6 +9,9 @@ export type DiagramState = {
   code: string;
   theme: MermaidTheme;
   customStyles: CustomStyles;
+  customCss: string;
+  tags: string[];
+  isPublic: boolean;
   dirty: boolean;
   saving: boolean;
   lastSavedAt: number | null;
@@ -20,6 +23,9 @@ type DiagramActions = {
   setCode: (c: string) => void;
   setTheme: (t: MermaidTheme) => void;
   setCustomStyles: (s: CustomStyles) => void;
+  setCustomCss: (s: string) => void;
+  setTags: (t: string[]) => void;
+  setIsPublic: (p: boolean) => void;
   setSaving: (s: boolean) => void;
   markSaved: () => void;
   reset: () => void;
@@ -31,6 +37,9 @@ const initial: DiagramState = {
   code: "",
   theme: "default",
   customStyles: {},
+  customCss: "",
+  tags: [],
+  isPublic: false,
   dirty: false,
   saving: false,
   lastSavedAt: null,
@@ -50,6 +59,9 @@ export const useDiagramStore = create<DiagramState & DiagramActions>((set) => ({
   setCode: (c) => set({ code: c, dirty: true }),
   setTheme: (t) => set({ theme: t, dirty: true }),
   setCustomStyles: (s) => set({ customStyles: s, dirty: true }),
+  setCustomCss: (s) => set({ customCss: s, dirty: true }),
+  setTags: (t) => set({ tags: t, dirty: true }),
+  setIsPublic: (p) => set({ isPublic: p }),
   setSaving: (s) => set({ saving: s }),
   markSaved: () => set({ dirty: false, saving: false, lastSavedAt: Date.now() }),
   reset: () => set({ ...initial }),

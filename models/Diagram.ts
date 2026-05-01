@@ -21,13 +21,20 @@ const diagramSchema = new Schema(
       default: "default",
     },
     customStyles: { type: customStylesSchema, default: () => ({}) },
-    isPublic: { type: Boolean, default: false },
+    customCss: { type: String, default: "", maxlength: 10_000 },
+    tags: {
+      type: [String],
+      default: [],
+      validate: [(v: string[]) => v.length <= 20, "Too many tags"],
+    },
+    isPublic: { type: Boolean, default: false, index: true },
   },
   { timestamps: true },
 );
 
 diagramSchema.index({ userId: 1, updatedAt: -1 });
 diagramSchema.index({ userId: 1, title: "text" });
+diagramSchema.index({ userId: 1, tags: 1 });
 
 export type DiagramDoc = InferSchemaType<typeof diagramSchema> & {
   _id: mongoose.Types.ObjectId;
