@@ -15,7 +15,7 @@ const annotationSchema = new Schema(
     id: { type: String, required: true },
     type: {
       type: String,
-      enum: ["note", "highlight", "arrow", "pin"],
+      enum: ["note", "highlight", "arrow", "pin", "pen"],
       required: true,
     },
     color: {
@@ -30,6 +30,7 @@ const annotationSchema = new Schema(
     endX: { type: Number },
     endY: { type: Number },
     text: { type: String, maxlength: 500 },
+    points: { type: [[Number]], default: undefined },
   },
   { _id: false },
 );

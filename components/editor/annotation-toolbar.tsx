@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, Highlighter, MapPin, MousePointer2, StickyNote } from "lucide-react";
+import {
+  ArrowRight,
+  Highlighter,
+  MapPin,
+  MousePointer2,
+  Pen,
+  StickyNote,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ANNOTATION_COLORS, COLOR_KEYS } from "@/lib/annotation-colors";
 import type { AnnotationColor, AnnotationType } from "@/lib/validators";
@@ -15,6 +22,7 @@ const TOOLS: {
   Icon: React.ComponentType<{ className?: string }>;
   hint: string;
 }[] = [
+  { type: "pen", label: "Pen", Icon: Pen, hint: "Drag to draw freehand" },
   { type: "note", label: "Note", Icon: StickyNote, hint: "Click to drop a note" },
   {
     type: "highlight",
@@ -22,7 +30,7 @@ const TOOLS: {
     Icon: Highlighter,
     hint: "Drag to draw a highlight box",
   },
-  { type: "arrow", label: "Arrow", Icon: ArrowRight, hint: "Drag to draw an arrow" },
+  { type: "arrow", label: "Arrow", Icon: ArrowRight, hint: "Drag to draw a straight arrow" },
   { type: "pin", label: "Pin", Icon: MapPin, hint: "Click to drop a pin" },
 ];
 

@@ -26,7 +26,13 @@ export const tagsSchema = z
   .array(z.string().min(1).max(32).regex(/^[a-z0-9-_ ]+$/i))
   .max(20);
 
-export const annotationTypeEnum = z.enum(["note", "highlight", "arrow", "pin"]);
+export const annotationTypeEnum = z.enum([
+  "note",
+  "highlight",
+  "arrow",
+  "pin",
+  "pen",
+]);
 export const annotationColorEnum = z.enum([
   "yellow",
   "red",
@@ -46,6 +52,11 @@ export const annotationSchema = z.object({
   endX: z.number().finite().optional(),
   endY: z.number().finite().optional(),
   text: z.string().max(500).optional(),
+  // Free-form pen strokes — array of [x, y] points in stage coords.
+  points: z
+    .array(z.tuple([z.number().finite(), z.number().finite()]))
+    .max(2_000)
+    .optional(),
 });
 
 export const annotationsSchema = z.array(annotationSchema).max(200);

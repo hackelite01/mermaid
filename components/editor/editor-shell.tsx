@@ -412,20 +412,18 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
             onAnnotationsChange={setAnnotations}
             annotationTool={annotationTool}
           />
-          {!fullscreen && (
-            <AnnotationToolbar
-              tool={annotationTool}
-              onToolChange={setAnnotationTool}
-              count={annotations.length}
-              onClear={() => {
-                if (annotations.length === 0) return;
-                if (window.confirm(`Remove all ${annotations.length} annotations?`)) {
-                  setAnnotations([]);
-                  setAnnotationTool(null);
-                }
-              }}
-            />
-          )}
+          <AnnotationToolbar
+            tool={annotationTool}
+            onToolChange={setAnnotationTool}
+            count={annotations.length}
+            onClear={() => {
+              if (annotations.length === 0) return;
+              if (window.confirm(`Remove all ${annotations.length} annotations?`)) {
+                setAnnotations([]);
+                setAnnotationTool(null);
+              }
+            }}
+          />
         </div>
         {!fullscreen && (
           <aside className="overflow-auto border-l p-4">

@@ -38,6 +38,9 @@ export function AnnotationLayer({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const draftRef = React.useRef<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
   const [draft, setDraft] = React.useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
+  // Free-form pen draft — stage-coordinate points being captured live.
+  const penPointsRef = React.useRef<[number, number][] | null>(null);
+  const [penPoints, setPenPoints] = React.useState<[number, number][] | null>(null);
   const dragRef = React.useRef<{
     id: string;
     pointerStart: { x: number; y: number };
@@ -86,11 +89,30 @@ export function AnnotationLayer({
     e.stopPropagation();
     (e.target as Element).setPointerCapture(e.pointerId);
     const p = toStage(e.clientX, e.clientY);
+
+    if (tool.type === "pen") {
+      penPointsRef.current = [[p.x, p.y]];
+      setPenPoints(penPointsRef.current);
+      return;
+    }
+
     draftRef.current = { start: p, end: p };
     setDraft({ start: p, end: p });
   }
 
   function onLayerPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (penPointsRef.current) {
+      const p = toStage(e.clientX, e.clientY);
+      const last = penPointsRef.current[penPointsRef.current.length - 1];
+      // Throttle by min distance (in stage units) so the points list
+      // doesn't explode on high-frequency moves.
+      const minDist = 1.5 / transform.scale;
+      if (Math.hypot(p.x - last[0], p.y - last[1]) >= minDist) {
+        penPointsRef.current.push([p.x, p.y]);
+        setPenPoints([...penPointsRef.current]);
+      }
+      return;
+    }
     if (!draftRef.current) return;
     const p = toStage(e.clientX, e.clientY);
     draftRef.current = { ...draftRef.current, end: p };
@@ -98,6 +120,27 @@ export function AnnotationLayer({
   }
 
   function onLayerPointerUp() {
+    // Pen commit.
+    if (penPointsRef.current) {
+      const points = penPointsRef.current;
+      penPointsRef.current = null;
+      setPenPoints(null);
+      if (!tool || points.length < 2) return; // throw away tap-without-drag
+      const id = makeId();
+      const ann: Annotation = {
+        id,
+        type: "pen",
+        color: tool.color,
+        x: points[0][0],
+        y: points[0][1],
+        points: points.slice(0, 2_000),
+      };
+      onChange([...annotations, ann]);
+      onCreated?.(ann);
+      setSelectedId(id);
+      return;
+    }
+
     if (!tool || !draftRef.current) return;
     const { start, end } = draftRef.current;
     draftRef.current = null;
@@ -147,6 +190,9 @@ export function AnnotationLayer({
       case "pin":
         ann = { id, type: "pin", color: tool.color, x: start.x, y: start.y };
         break;
+      case "pen":
+        // Handled above.
+        return;
     }
 
     onChange([...annotations, ann]);
@@ -183,6 +229,12 @@ export function AnnotationLayer({
       if (a.type === "arrow" && drag.annStart.endX != null && drag.annStart.endY != null) {
         moved.endX = drag.annStart.endX + dx;
         moved.endY = drag.annStart.endY + dy;
+      }
+      if (a.type === "pen" && drag.annStart.points) {
+        moved.points = drag.annStart.points.map(([px, py]) => [
+          px + dx,
+          py + dy,
+        ]) as [number, number][];
       }
       return moved;
     });
@@ -284,15 +336,54 @@ export function AnnotationLayer({
             );
           })}
 
+        {annotations
+          .filter((a) => a.type === "pen" && a.points && a.points.length >= 2)
+          .map((a) => {
+            const c = ANNOTATION_COLORS[a.color];
+            const isSelected = selectedId === a.id;
+            const d = pointsToPath(a.points!, transform);
+            return (
+              <path
+                key={a.id}
+                d={d}
+                fill="none"
+                stroke={c.stroke}
+                strokeWidth={isSelected ? 3 : 2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ pointerEvents: "stroke", cursor: "move" }}
+                className="pointer-events-auto"
+                onPointerDown={(e) =>
+                  startMove(e as unknown as React.PointerEvent, a)
+                }
+                onPointerMove={(e) => onMove(e as unknown as React.PointerEvent)}
+                onPointerUp={onMoveEnd}
+                onPointerCancel={onMoveEnd}
+              />
+            );
+          })}
+
         {/* Draft preview while drawing. */}
         {draft && tool && (
           <DraftShape draft={draft} tool={tool} transform={transform} />
+        )}
+        {penPoints && penPoints.length >= 2 && tool?.type === "pen" && (
+          <path
+            d={pointsToPath(penPoints, transform)}
+            fill="none"
+            stroke={ANNOTATION_COLORS[tool.color].stroke}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="0"
+            opacity={0.85}
+          />
         )}
       </svg>
 
       {/* HTML annotations: notes, highlights, pins. */}
       {annotations.map((a) => {
-        if (a.type === "arrow") return null;
+        if (a.type === "arrow" || a.type === "pen") return null;
         const x = a.x * transform.scale + transform.x;
         const y = a.y * transform.scale + transform.y;
         const c = ANNOTATION_COLORS[a.color];
@@ -490,6 +581,17 @@ function DeleteHandle({ onClick }: { onClick: () => void }) {
       <X className="h-3 w-3" />
     </button>
   );
+}
+
+function pointsToPath(points: [number, number][], transform: Transform): string {
+  if (points.length === 0) return "";
+  const [x0, y0] = points[0];
+  let d = `M ${x0 * transform.scale + transform.x} ${y0 * transform.scale + transform.y}`;
+  for (let i = 1; i < points.length; i++) {
+    const [px, py] = points[i];
+    d += ` L ${px * transform.scale + transform.x} ${py * transform.scale + transform.y}`;
+  }
+  return d;
 }
 
 function makeId() {
