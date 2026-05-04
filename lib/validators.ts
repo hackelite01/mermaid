@@ -50,6 +50,15 @@ export const versionCreateSchema = z.object({
   label: z.string().min(1).max(80).optional(),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().toLowerCase().trim(),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20).max(200),
+  password: z.string().min(8, "Password must be at least 8 characters").max(128),
+});
+
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type DiagramCreateInput = z.infer<typeof diagramCreateSchema>;
