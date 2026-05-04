@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { connectDB } from "@/lib/db";
 import { Diagram } from "@/models/Diagram";
 import { MermaidPreview } from "@/components/editor/mermaid-preview";
+import type { Annotation } from "@/lib/validators";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Code2 } from "lucide-react";
@@ -56,6 +57,7 @@ export default async function SharePage({
     theme: (doc.theme ?? "default") as "default" | "dark" | "forest" | "neutral" | "base",
     customStyles: stripNulls(doc.customStyles ?? {}),
     customCss: doc.customCss ?? "",
+    annotations: (doc.annotations ?? []) as Annotation[],
     title: doc.title,
   };
 
@@ -67,6 +69,8 @@ export default async function SharePage({
           theme={data.theme}
           customStyles={data.customStyles}
           customCss={data.customCss}
+          annotations={data.annotations}
+          minimal
         />
       </main>
     );
@@ -95,6 +99,8 @@ export default async function SharePage({
           theme={data.theme}
           customStyles={data.customStyles}
           customCss={data.customCss}
+          annotations={data.annotations}
+          minimal
         />
       </div>
     </div>

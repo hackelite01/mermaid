@@ -26,6 +26,30 @@ export const tagsSchema = z
   .array(z.string().min(1).max(32).regex(/^[a-z0-9-_ ]+$/i))
   .max(20);
 
+export const annotationTypeEnum = z.enum(["note", "highlight", "arrow", "pin"]);
+export const annotationColorEnum = z.enum([
+  "yellow",
+  "red",
+  "green",
+  "blue",
+  "purple",
+]);
+
+export const annotationSchema = z.object({
+  id: z.string().min(1).max(64),
+  type: annotationTypeEnum,
+  color: annotationColorEnum.default("yellow"),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  w: z.number().finite().optional(),
+  h: z.number().finite().optional(),
+  endX: z.number().finite().optional(),
+  endY: z.number().finite().optional(),
+  text: z.string().max(500).optional(),
+});
+
+export const annotationsSchema = z.array(annotationSchema).max(200);
+
 export const diagramCreateSchema = z.object({
   title: z.string().min(1).max(120).default("Untitled diagram"),
   code: z.string().max(50_000).default(""),
@@ -33,6 +57,7 @@ export const diagramCreateSchema = z.object({
   customStyles: customStylesSchema.default({}),
   customCss: z.string().max(10_000).default(""),
   tags: tagsSchema.default([]),
+  annotations: annotationsSchema.default([]),
 });
 
 export const diagramUpdateSchema = z.object({
@@ -42,6 +67,7 @@ export const diagramUpdateSchema = z.object({
   customStyles: customStylesSchema.optional(),
   customCss: z.string().max(10_000).optional(),
   tags: tagsSchema.optional(),
+  annotations: annotationsSchema.optional(),
 });
 
 export const shareSchema = z.object({ isPublic: z.boolean() });
@@ -64,3 +90,6 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type DiagramCreateInput = z.infer<typeof diagramCreateSchema>;
 export type DiagramUpdateInput = z.infer<typeof diagramUpdateSchema>;
 export type CustomStyles = z.infer<typeof customStylesSchema>;
+export type Annotation = z.infer<typeof annotationSchema>;
+export type AnnotationType = z.infer<typeof annotationTypeEnum>;
+export type AnnotationColor = z.infer<typeof annotationColorEnum>;

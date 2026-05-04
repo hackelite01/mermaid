@@ -10,6 +10,30 @@ const customStylesSchema = new Schema(
   { _id: false },
 );
 
+const annotationSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    type: {
+      type: String,
+      enum: ["note", "highlight", "arrow", "pin"],
+      required: true,
+    },
+    color: {
+      type: String,
+      enum: ["yellow", "red", "green", "blue", "purple"],
+      default: "yellow",
+    },
+    x: { type: Number, required: true },
+    y: { type: Number, required: true },
+    w: { type: Number },
+    h: { type: Number },
+    endX: { type: Number },
+    endY: { type: Number },
+    text: { type: String, maxlength: 500 },
+  },
+  { _id: false },
+);
+
 const diagramSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
@@ -26,6 +50,14 @@ const diagramSchema = new Schema(
       type: [String],
       default: [],
       validate: [(v: string[]) => v.length <= 20, "Too many tags"],
+    },
+    annotations: {
+      type: [annotationSchema],
+      default: [],
+      validate: [
+        (v: unknown[]) => v.length <= 200,
+        "Too many annotations (max 200)",
+      ],
     },
     isPublic: { type: Boolean, default: false, index: true },
   },

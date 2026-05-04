@@ -38,8 +38,10 @@ import { TemplatesMenu } from "@/components/editor/templates-menu";
 import { ShareDialog } from "@/components/editor/share-dialog";
 import { VersionHistory } from "@/components/editor/version-history";
 import { KeyboardHelp } from "@/components/editor/keyboard-help";
+import { AnnotationToolbar } from "@/components/editor/annotation-toolbar";
+import type { ActiveTool } from "@/components/editor/annotation-layer";
 import { useDiagramStore, type MermaidTheme } from "@/store/diagram-store";
-import type { CustomStyles } from "@/lib/validators";
+import type { Annotation, CustomStyles } from "@/lib/validators";
 import { debounce } from "@/lib/utils";
 import { copyText } from "@/lib/clipboard";
 import { formatMermaid } from "@/lib/format-mermaid";
@@ -53,6 +55,7 @@ export type DiagramApiPayload = {
   customStyles: CustomStyles;
   customCss: string;
   tags: string[];
+  annotations: Annotation[];
   isPublic: boolean;
 };
 
@@ -66,6 +69,7 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
   const [versionsOpen, setVersionsOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
   const [copyState, setCopyState] = React.useState<string | null>(null);
+  const [annotationTool, setAnnotationTool] = React.useState<ActiveTool>(null);
 
   const {
     id,
@@ -75,6 +79,7 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
     customStyles,
     customCss,
     tags,
+    annotations,
     isPublic,
     dirty,
     saving,
@@ -86,6 +91,7 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
     setCustomStyles,
     setCustomCss,
     setTags,
+    setAnnotations,
     setIsPublic,
     setSaving,
     markSaved,
@@ -117,7 +123,15 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
       const res = await fetch(`/api/diagrams/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, code, theme, customStyles, customCss, tags }),
+        body: JSON.stringify({
+          title,
+          code,
+          theme,
+          customStyles,
+          customCss,
+          tags,
+          annotations,
+        }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -130,7 +144,19 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
       setSaving(false);
       toast({ variant: "destructive", title: "Save failed" });
     }
-  }, [id, title, code, theme, customStyles, customCss, tags, setSaving, markSaved, toast]);
+  }, [
+    id,
+    title,
+    code,
+    theme,
+    customStyles,
+    customCss,
+    tags,
+    annotations,
+    setSaving,
+    markSaved,
+    toast,
+  ]);
 
   const autoSaveRef = React.useRef(
     debounce(() => {
@@ -145,7 +171,7 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
 
   React.useEffect(() => {
     if (dirty) autoSaveRef.current();
-  }, [dirty, title, code, theme, customStyles, customCss, tags]);
+  }, [dirty, title, code, theme, customStyles, customCss, tags, annotations]);
 
   // Global keyboard: Ctrl/Cmd+S, ?, Shift+Alt+F.
   React.useEffect(() => {
@@ -375,14 +401,31 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
             <CodeEditor value={code} onChange={setCode} />
           </div>
         )}
-        <div className="h-full">
+        <div className="relative h-full">
           <MermaidPreview
             ref={previewRef}
             code={debouncedCode}
             theme={theme}
             customStyles={customStyles}
             customCss={customCss}
+            annotations={annotations}
+            onAnnotationsChange={setAnnotations}
+            annotationTool={annotationTool}
           />
+          {!fullscreen && (
+            <AnnotationToolbar
+              tool={annotationTool}
+              onToolChange={setAnnotationTool}
+              count={annotations.length}
+              onClear={() => {
+                if (annotations.length === 0) return;
+                if (window.confirm(`Remove all ${annotations.length} annotations?`)) {
+                  setAnnotations([]);
+                  setAnnotationTool(null);
+                }
+              }}
+            />
+          )}
         </div>
         {!fullscreen && (
           <aside className="overflow-auto border-l p-4">
@@ -421,6 +464,7 @@ export function EditorShell({ initial }: { initial: DiagramApiPayload }) {
               setTheme(d.theme as MermaidTheme);
               setCustomStyles((d.customStyles as CustomStyles) ?? {});
               setCustomCss(d.customCss ?? "");
+              setAnnotations([]);
               router.refresh();
             }}
           />

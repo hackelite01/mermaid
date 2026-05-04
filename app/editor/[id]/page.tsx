@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
 import { Diagram } from "@/models/Diagram";
 import { EditorShell, type DiagramApiPayload } from "@/components/editor/editor-shell";
+import type { Annotation } from "@/lib/validators";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ export default async function EditorPage({ params }: { params: { id: string } })
     customStyles: (doc.customStyles ?? {}) as DiagramApiPayload["customStyles"],
     customCss: doc.customCss ?? "",
     tags: doc.tags ?? [],
+    annotations: (doc.annotations ?? []) as Annotation[],
     isPublic: doc.isPublic ?? false,
   };
 

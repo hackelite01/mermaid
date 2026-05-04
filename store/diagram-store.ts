@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CustomStyles } from "@/lib/validators";
+import type { Annotation, CustomStyles } from "@/lib/validators";
 
 export type MermaidTheme = "default" | "dark" | "forest" | "neutral" | "base";
 
@@ -11,6 +11,7 @@ export type DiagramState = {
   customStyles: CustomStyles;
   customCss: string;
   tags: string[];
+  annotations: Annotation[];
   isPublic: boolean;
   dirty: boolean;
   saving: boolean;
@@ -25,6 +26,7 @@ type DiagramActions = {
   setCustomStyles: (s: CustomStyles) => void;
   setCustomCss: (s: string) => void;
   setTags: (t: string[]) => void;
+  setAnnotations: (a: Annotation[]) => void;
   setIsPublic: (p: boolean) => void;
   setSaving: (s: boolean) => void;
   markSaved: () => void;
@@ -39,6 +41,7 @@ const initial: DiagramState = {
   customStyles: {},
   customCss: "",
   tags: [],
+  annotations: [],
   isPublic: false,
   dirty: false,
   saving: false,
@@ -61,6 +64,7 @@ export const useDiagramStore = create<DiagramState & DiagramActions>((set) => ({
   setCustomStyles: (s) => set({ customStyles: s, dirty: true }),
   setCustomCss: (s) => set({ customCss: s, dirty: true }),
   setTags: (t) => set({ tags: t, dirty: true }),
+  setAnnotations: (a) => set({ annotations: a, dirty: true }),
   setIsPublic: (p) => set({ isPublic: p }),
   setSaving: (s) => set({ saving: s }),
   markSaved: () => set({ dirty: false, saving: false, lastSavedAt: Date.now() }),

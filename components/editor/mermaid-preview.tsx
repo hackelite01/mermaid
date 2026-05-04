@@ -16,7 +16,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sanitizeCss } from "@/lib/sanitize-css";
-import type { CustomStyles } from "@/lib/validators";
+import type { Annotation, CustomStyles } from "@/lib/validators";
+import {
+  AnnotationLayer,
+  type ActiveTool,
+} from "@/components/editor/annotation-layer";
 
 type MermaidTheme = "default" | "dark" | "forest" | "neutral" | "base";
 
@@ -50,13 +54,29 @@ type Props = {
   darkAware?: boolean;
   /** Hide the toolbar (used by embed/iframe mode). */
   minimal?: boolean;
+  annotations?: Annotation[];
+  onAnnotationsChange?: (next: Annotation[]) => void;
+  annotationTool?: ActiveTool;
+  onAnnotationToolChange?: (t: ActiveTool) => void;
 };
 
 export const MermaidPreview = React.forwardRef<MermaidPreviewHandle, Props>(
   function MermaidPreview(
-    { code, theme, customStyles, customCss, darkAware = true, minimal = false },
+    {
+      code,
+      theme,
+      customStyles,
+      customCss,
+      darkAware = true,
+      minimal = false,
+      annotations = [],
+      onAnnotationsChange,
+      annotationTool = null,
+      onAnnotationToolChange,
+    },
     ref,
   ) {
+    void onAnnotationToolChange;
     const viewportRef = React.useRef<HTMLDivElement>(null);
     const stageRef = React.useRef<HTMLDivElement>(null);
     const transformRef = React.useRef<Transform>(IDENTITY);
@@ -252,6 +272,9 @@ export const MermaidPreview = React.forwardRef<MermaidPreviewHandle, Props>(
 
     function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
       if (e.pointerType === "mouse" && e.button !== 0) return;
+      // While an annotation tool is active, the AnnotationLayer captures
+      // pointer events for drawing — don't pan the diagram underneath.
+      if (annotationTool) return;
       (e.target as Element).setPointerCapture?.(e.pointerId);
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -446,6 +469,35 @@ export const MermaidPreview = React.forwardRef<MermaidPreviewHandle, Props>(
               transformOrigin: "0 0",
             }}
           />
+
+          {onAnnotationsChange && (
+            <AnnotationLayer
+              annotations={annotations}
+              transform={transform}
+              viewportSize={{
+                w: viewportRef.current?.clientWidth ?? 0,
+                h: viewportRef.current?.clientHeight ?? 0,
+              }}
+              tool={annotationTool}
+              onChange={onAnnotationsChange}
+              readOnly={minimal}
+            />
+          )}
+          {minimal && annotations.length > 0 && (
+            <AnnotationLayer
+              annotations={annotations}
+              transform={transform}
+              viewportSize={{
+                w: viewportRef.current?.clientWidth ?? 0,
+                h: viewportRef.current?.clientHeight ?? 0,
+              }}
+              tool={null}
+              onChange={() => {
+                /* no-op in read-only embed */
+              }}
+              readOnly
+            />
+          )}
         </div>
 
         {showMiniMap && (

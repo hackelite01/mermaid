@@ -16,7 +16,7 @@ export async function GET(
 
   await connectDB();
   const doc = await Diagram.findOne({ _id: params.id, isPublic: true })
-    .select("title code theme customStyles customCss updatedAt")
+    .select("title code theme customStyles customCss annotations updatedAt")
     .lean();
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -27,6 +27,7 @@ export async function GET(
     theme: doc.theme,
     customStyles: doc.customStyles,
     customCss: doc.customCss ?? "",
+    annotations: doc.annotations ?? [],
     updatedAt: doc.updatedAt,
   });
 }
