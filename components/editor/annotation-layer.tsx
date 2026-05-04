@@ -7,8 +7,13 @@ import type { Annotation, AnnotationColor, AnnotationType } from "@/lib/validato
 
 type Transform = { x: number; y: number; scale: number };
 
+/**
+ * Eraser is a transient mode that deletes annotations on contact — it is not
+ * itself persisted as an annotation, so it lives alongside the real types here.
+ */
+export type ToolKind = AnnotationType | "eraser";
 export type ActiveTool = {
-  type: AnnotationType;
+  type: ToolKind;
   color: AnnotationColor;
 } | null;
 
@@ -41,6 +46,9 @@ export function AnnotationLayer({
   // Free-form pen draft — stage-coordinate points being captured live.
   const penPointsRef = React.useRef<[number, number][] | null>(null);
   const [penPoints, setPenPoints] = React.useState<[number, number][] | null>(null);
+  // Eraser state — set of ids the user has dragged over since pointer-down.
+  const eraseDragRef = React.useRef<Set<string> | null>(null);
+  const [eraseMarked, setEraseMarked] = React.useState<Set<string>>(new Set());
   const dragRef = React.useRef<{
     id: string;
     pointerStart: { x: number; y: number };
@@ -90,6 +98,15 @@ export function AnnotationLayer({
     (e.target as Element).setPointerCapture(e.pointerId);
     const p = toStage(e.clientX, e.clientY);
 
+    if (tool.type === "eraser") {
+      const set = new Set<string>();
+      const hits = hitTest(p.x, p.y, annotations, transform.scale);
+      hits.forEach((id) => set.add(id));
+      eraseDragRef.current = set;
+      setEraseMarked(new Set(set));
+      return;
+    }
+
     if (tool.type === "pen") {
       penPointsRef.current = [[p.x, p.y]];
       setPenPoints(penPointsRef.current);
@@ -101,6 +118,19 @@ export function AnnotationLayer({
   }
 
   function onLayerPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (eraseDragRef.current && tool?.type === "eraser") {
+      const p = toStage(e.clientX, e.clientY);
+      const hits = hitTest(p.x, p.y, annotations, transform.scale);
+      let changed = false;
+      for (const id of hits) {
+        if (!eraseDragRef.current.has(id)) {
+          eraseDragRef.current.add(id);
+          changed = true;
+        }
+      }
+      if (changed) setEraseMarked(new Set(eraseDragRef.current));
+      return;
+    }
     if (penPointsRef.current) {
       const p = toStage(e.clientX, e.clientY);
       const last = penPointsRef.current[penPointsRef.current.length - 1];
@@ -120,6 +150,18 @@ export function AnnotationLayer({
   }
 
   function onLayerPointerUp() {
+    // Eraser commit.
+    if (eraseDragRef.current) {
+      const ids = eraseDragRef.current;
+      eraseDragRef.current = null;
+      setEraseMarked(new Set());
+      if (ids.size > 0) {
+        onChange(annotations.filter((a) => !ids.has(a.id)));
+        if (selectedId && ids.has(selectedId)) setSelectedId(null);
+      }
+      return;
+    }
+
     // Pen commit.
     if (penPointsRef.current) {
       const points = penPointsRef.current;
@@ -191,6 +233,7 @@ export function AnnotationLayer({
         ann = { id, type: "pin", color: tool.color, x: start.x, y: start.y };
         break;
       case "pen":
+      case "eraser":
         // Handled above.
         return;
     }
@@ -279,7 +322,7 @@ export function AnnotationLayer({
       }}
       className="pointer-events-auto absolute inset-0"
       style={{
-        cursor: tool ? "crosshair" : "default",
+        cursor: tool?.type === "eraser" ? "cell" : tool ? "crosshair" : "default",
         // When no tool is active, let pan events through to the viewport
         // unless they hit an annotation child.
         pointerEvents: tool || annotations.length ? "auto" : "none",
@@ -314,14 +357,15 @@ export function AnnotationLayer({
             if (!r) return null;
             const c = ANNOTATION_COLORS[a.color];
             const isSelected = selectedId === a.id;
+            const marked = eraseMarked.has(a.id);
             return (
-              <g key={a.id}>
+              <g key={a.id} opacity={marked ? 0.35 : 1}>
                 <line
                   x1={r.x1}
                   y1={r.y1}
                   x2={r.x2}
                   y2={r.y2}
-                  stroke={c.stroke}
+                  stroke={marked ? "#ef4444" : c.stroke}
                   strokeWidth={isSelected ? 3 : 2}
                   strokeLinecap="round"
                   markerEnd={`url(#ann-arrow-${a.color})`}
@@ -341,16 +385,18 @@ export function AnnotationLayer({
           .map((a) => {
             const c = ANNOTATION_COLORS[a.color];
             const isSelected = selectedId === a.id;
+            const marked = eraseMarked.has(a.id);
             const d = pointsToPath(a.points!, transform);
             return (
               <path
                 key={a.id}
                 d={d}
                 fill="none"
-                stroke={c.stroke}
+                stroke={marked ? "#ef4444" : c.stroke}
                 strokeWidth={isSelected ? 3 : 2}
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                opacity={marked ? 0.35 : 1}
                 style={{ pointerEvents: "stroke", cursor: "move" }}
                 className="pointer-events-auto"
                 onPointerDown={(e) =>
@@ -388,6 +434,10 @@ export function AnnotationLayer({
         const y = a.y * transform.scale + transform.y;
         const c = ANNOTATION_COLORS[a.color];
         const isSelected = selectedId === a.id;
+        const marked = eraseMarked.has(a.id);
+        const markedStyle = marked
+          ? { opacity: 0.35, outline: "2px dashed #ef4444", outlineOffset: 2 }
+          : null;
 
         if (a.type === "pin") {
           const size = 14;
@@ -415,6 +465,7 @@ export function AnnotationLayer({
                 border: `2px solid ${c.border}`,
                 boxShadow: isSelected ? `0 0 0 3px ${c.bg}` : "0 1px 3px rgba(0,0,0,0.25)",
                 cursor: "move",
+                ...markedStyle,
               }}
             />
           );
@@ -444,6 +495,7 @@ export function AnnotationLayer({
                 border: `${isSelected ? 2 : 1}px solid ${c.border}`,
                 borderRadius: 4,
                 cursor: "move",
+                ...markedStyle,
               }}
             >
               {isSelected && !readOnly && (
@@ -483,6 +535,7 @@ export function AnnotationLayer({
               background: c.fill,
               border: `${isSelected ? 2 : 1}px solid ${c.border}`,
               cursor: editingId === a.id ? "text" : "move",
+              ...markedStyle,
             }}
           >
             {editingId === a.id && !readOnly ? (
@@ -581,6 +634,75 @@ function DeleteHandle({ onClick }: { onClick: () => void }) {
       <X className="h-3 w-3" />
     </button>
   );
+}
+
+/**
+ * Object-eraser hit test. `sx,sy` is in stage coords; the hit threshold is
+ * 8 viewport pixels regardless of zoom (so erasing feels the same when
+ * zoomed in or out).
+ */
+function hitTest(
+  sx: number,
+  sy: number,
+  annotations: Annotation[],
+  scale: number,
+): string[] {
+  const radius = 8 / Math.max(scale, 0.1);
+  const hits: string[] = [];
+  for (const a of annotations) {
+    if (a.type === "pin") {
+      if (Math.hypot(sx - a.x, sy - a.y) <= radius + 6) hits.push(a.id);
+      continue;
+    }
+    if (a.type === "note" || a.type === "highlight") {
+      const w = a.w ?? 160;
+      const h = a.h ?? 80;
+      if (
+        sx >= a.x - radius &&
+        sx <= a.x + w + radius &&
+        sy >= a.y - radius &&
+        sy <= a.y + h + radius
+      ) {
+        hits.push(a.id);
+      }
+      continue;
+    }
+    if (a.type === "arrow" && a.endX != null && a.endY != null) {
+      if (pointToSegment(sx, sy, a.x, a.y, a.endX, a.endY) <= radius)
+        hits.push(a.id);
+      continue;
+    }
+    if (a.type === "pen" && a.points && a.points.length >= 2) {
+      const pts = a.points;
+      for (let i = 1; i < pts.length; i++) {
+        if (
+          pointToSegment(sx, sy, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]) <=
+          radius
+        ) {
+          hits.push(a.id);
+          break;
+        }
+      }
+    }
+  }
+  return hits;
+}
+
+function pointToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+  let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
 function pointsToPath(points: [number, number][], transform: Transform): string {

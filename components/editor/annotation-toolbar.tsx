@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   ArrowRight,
+  Eraser,
   Highlighter,
   MapPin,
   MousePointer2,
@@ -11,16 +12,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ANNOTATION_COLORS, COLOR_KEYS } from "@/lib/annotation-colors";
-import type { AnnotationColor, AnnotationType } from "@/lib/validators";
+import type { AnnotationColor } from "@/lib/validators";
+import type { ActiveTool, ToolKind } from "@/components/editor/annotation-layer";
 import { cn } from "@/lib/utils";
 
-type ActiveTool = { type: AnnotationType; color: AnnotationColor } | null;
-
 const TOOLS: {
-  type: AnnotationType;
+  type: ToolKind;
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
   hint: string;
+  noColor?: boolean;
 }[] = [
   { type: "pen", label: "Pen", Icon: Pen, hint: "Drag to draw freehand" },
   { type: "note", label: "Note", Icon: StickyNote, hint: "Click to drop a note" },
@@ -32,6 +33,13 @@ const TOOLS: {
   },
   { type: "arrow", label: "Arrow", Icon: ArrowRight, hint: "Drag to draw a straight arrow" },
   { type: "pin", label: "Pin", Icon: MapPin, hint: "Click to drop a pin" },
+  {
+    type: "eraser",
+    label: "Eraser",
+    Icon: Eraser,
+    hint: "Click or drag over annotations to remove them",
+    noColor: true,
+  },
 ];
 
 export function AnnotationToolbar({
@@ -47,7 +55,7 @@ export function AnnotationToolbar({
 }) {
   const [color, setColor] = React.useState<AnnotationColor>(tool?.color ?? "yellow");
 
-  function pick(t: AnnotationType) {
+  function pick(t: ToolKind) {
     if (tool?.type === t) {
       onToolChange(null);
       return;
@@ -88,6 +96,12 @@ export function AnnotationToolbar({
 
       <span className="my-0.5 h-px w-6 bg-border" />
 
+      <div
+        className={cn(
+          "flex flex-col items-center gap-1 transition-opacity",
+          tool?.type === "eraser" && "pointer-events-none opacity-30",
+        )}
+      >
       {COLOR_KEYS.map((key) => {
         const c = ANNOTATION_COLORS[key];
         const active = (tool?.color ?? color) === key;
@@ -110,6 +124,7 @@ export function AnnotationToolbar({
           />
         );
       })}
+      </div>
 
       {count > 0 && (
         <>
